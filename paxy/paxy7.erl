@@ -1,5 +1,7 @@
--module(paxy).
--export([start/1, stop/0, stop/1]).
+% II - fault tolerance (persistent state)
+
+-module(paxy7).
+-export([start/1, stop/0, stop/1, crash/2]).
 
 -define(RED, {255,0,0}).
 -define(BLUE, {0,0,255}).
@@ -30,7 +32,7 @@ start_acceptors(AccIds, AccReg, Seed) ->
             ok;
         [AccId|Rest] ->
             [RegName|RegNameRest] = AccReg,
-            register(RegName, acceptor:start(RegName, Seed, AccId)),
+            register(RegName, acceptor7:start(RegName, Seed, AccId)),
             start_acceptors(Rest, RegNameRest, Seed+1)
     end.
 
@@ -40,7 +42,7 @@ start_proposers(PropIds, PropInfo, Acceptors, Seed) ->
             ok;
         [PropId|Rest] ->
             [{RegName, Colour, Inc}|RestInfo] = PropInfo,
-            proposer:start(RegName, Colour, Acceptors, Seed+Inc, PropId),
+            proposer7:start(RegName, Colour, Acceptors, Seed+Inc, PropId),
             start_proposers(Rest, RestInfo, Acceptors, Seed)
         end.
 
@@ -59,4 +61,14 @@ stop(Name) ->
         Pid ->
             Pid ! stop
     end.
+
+crash(Name, Seed) ->
+	case whereis(Name) of
+		undefined ->
+			ok;
+		Pid ->
+			unregister(Name),
+			exit(Pid, "crash"),
+			register(Name, acceptor:start(Name, Seed, na))
+	end.
 

@@ -1,7 +1,10 @@
--module(proposer).
+-module(proposer7).
+
 -export([start/5]).
--define(timeout, 2000).
+
+-define(timeout, 4000).
 -define(backoff, 10).
+
 start(Name, Proposal, Acceptors, Seed, PanelId) ->
     spawn(fun() -> init(Name, Proposal, Acceptors, Seed, PanelId) end).
 init(Name, Proposal, Acceptors, Seed, PanelId) ->
@@ -103,6 +106,7 @@ prepare(Round, Acceptors) ->
         send(Acceptor, {prepare, self(), Round})
     end,
     lists:map(Fun, Acceptors).
+
 accept(Round, Proposal, Acceptors) ->
     Fun = fun(Acceptor) ->
         send(Acceptor, {accept, self(), Round, Proposal})
@@ -112,6 +116,11 @@ accept(Round, Proposal, Acceptors) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 send(Name, Message) ->
-    Name ! Message.
+	case whereis(Name) of
+		undefined ->
+			down;
+		Pid ->
+			Pid ! Message
+	end.
 
 

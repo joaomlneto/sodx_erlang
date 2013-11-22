@@ -1,4 +1,6 @@
--module(paxy).
+% experiment 1: induce delays in the acceptor
+
+-module(paxy2).
 -export([start/1, stop/0, stop/1]).
 
 -define(RED, {255,0,0}).
@@ -30,7 +32,7 @@ start_acceptors(AccIds, AccReg, Seed) ->
             ok;
         [AccId|Rest] ->
             [RegName|RegNameRest] = AccReg,
-            register(RegName, acceptor:start(RegName, Seed, AccId)),
+            register(RegName, acceptor2:start(RegName, Seed, AccId)),
             start_acceptors(Rest, RegNameRest, Seed+1)
     end.
 
