@@ -12,7 +12,8 @@ read(Name) ->
     end.
 %% inserts one object {Pr, Vt, Ac, Pn} into the table ’Name’
 store(Name, Pr, Vt, Ac, Pn)->
-    dets:insert(Name, {perm, Pr, Vt, Ac, Pn}).
+	dets:insert(Name, {perm, Pr, Vt, Ac, Pn}).
+
 delete(Name) ->
     dets:delete(Name, perm),
     dets:close(Name).

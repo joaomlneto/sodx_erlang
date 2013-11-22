@@ -1,45 +1,42 @@
-% II - fault tolerance (persistent state)
+% experiment 3: drop some promise/vote messages
 
 -module(acceptor7).
 
 -export([start/3]).
 
 -define(delay, 5000).
--define(drop, 20).
+-define(drop, 10).
 
 start(Name, Seed, PanelId) ->
 	spawn(fun() -> init(Name, Seed, PanelId) end).
 
-%init(Name, Seed, na) ->
-%	random:seed(Seed, Seed, Seed),
-%	{Promise, Voted, Accepted, PanelId} = pers:read(Name),
-%	io:format("[Acceptor ~w] I recovered from the crash!", [Name]),
-%	acceptor(Name, Promise, Voted, Accepted, PanelId);
-
-init(Name, Seed, PanelId) ->
+init(Name, Seed, na) ->
+	io:format("[Acceptor ~w] I JUST CRASHED! :(~n", [Name]),
 	random:seed(Seed, Seed, Seed),
-	Promise = order:null(),
-	Voted = order:null(),
-	Accepted = na,
+	{Promise, Voted, Accepted, PanelId} = pers:read(Name),
+	pers:store(Name, Promise, Voted, Accepted, PanelId),
+	acceptor(Name, Promise, Voted, Accepted, PanelId);
+	
+init(Name, Seed, PanelId) ->
+	io:format("[Acceptor ~w] HELLO EVERYONE!~n", [Name]),
+	random:seed(Seed, Seed, Seed),
+	{Promise, Voted, Accepted, _} = pers:read(Name),
+	pers:store(Name, Promise, Voted, Accepted, PanelId),
 	acceptor(Name, Promise, Voted, Accepted, PanelId).
 
 maybe_send(Name, Destination, Message) ->
 	case random:uniform(?drop) of
 		?drop ->
-			Destination ! Message
-			%io:format("[Acceptor ~w] Message dropped", [Name]);
+			io:format("[Acceptor ~w] Message dropped", [Name]);
 		_ ->
 			Destination ! Message
 	end.
 
-delay() ->
-	R = random:uniform(?delay),
-	timer:sleep(R).
-
 acceptor(Name, Promise, Voted, Accepted, PanelId) ->
   receive
    {prepare, Proposer, Round} ->
-		delay(),
+	   R = random:uniform(?delay),
+	   timer:sleep(R),
 	   case order:gr(Round, Promise) of
 		   true ->
 					maybe_send(Name, Proposer, {promise, Round, Voted, Accepted}),
@@ -63,7 +60,8 @@ acceptor(Name, Promise, Voted, Accepted, PanelId) ->
 	   end;
 
 	 {accept, Proposer, Round, Proposal} ->
-		delay(),
+	   R = random:uniform(?delay),
+	   timer:sleep(R),
 		 case order:goe(Round, Promise) of
 			 true ->
 					maybe_send(Name, Proposer, {vote, Round}),
@@ -75,8 +73,8 @@ acceptor(Name, Promise, Voted, Accepted, PanelId) ->
 						 PanelId ! {updateAcc, "Round voted: "
 							++ lists:flatten(io_lib:format("~p", [Round])), "Cur. Promise: "
 							++ lists:flatten(io_lib:format("~p", [Promise])), Proposal},
-						pers:store(Name, Promise, Round, Proposal, PanelId),
-						acceptor(Name, Promise, Round, Proposal, PanelId);
+					pers:store(Name, Promise, Round, Proposal, PanelId),
+					 acceptor(Name, Promise, Round, Proposal, PanelId);
 					 false ->
 						 % Update gui
 							io:format("[Acceptor ~w] set gui: voted ~w promise ~w colour ~w~n",
@@ -84,11 +82,11 @@ acceptor(Name, Promise, Voted, Accepted, PanelId) ->
 												 PanelId ! {updateAcc, "Round voted: "
 							++ lists:flatten(io_lib:format("~p", [Voted])), "Cur. Promise: "
 							++ lists:flatten(io_lib:format("~p", [Promise])), Accepted},
-						acceptor(Name, Promise, Voted, Accepted, PanelId)
+												 acceptor(Name, Promise, Voted, Accepted, PanelId)
 				 	end;
 			 false ->
-				Proposer ! {sorry, {accept, Round}},
-				acceptor(Name, Promise, Voted, Accepted, PanelId)
+				 Proposer ! {sorry, {accept, Round}},
+				 acceptor(Name, Promise, Voted, Accepted, PanelId)
 		 end;
 
 

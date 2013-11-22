@@ -69,6 +69,6 @@ crash(Name, Seed) ->
 		Pid ->
 			unregister(Name),
 			exit(Pid, "crash"),
-			register(Name, acceptor:start(Name, Seed, na))
+			register(Name, acceptor7:start(Name, Seed, na))
 	end.
 
