@@ -1,5 +1,16 @@
 -module(client).
 -export([start/4]).
+
+-define(rp, 4).
+-define(wp, 5).
+
+-define(num_entries, 5).
+
+generateSubset(Entries) ->
+	EntriesList = lists:seq(1, Entries),
+	MixedEntriesList = [X||{_,X} <- lists:sort([ {random:uniform(), N} || N <- EntriesList])],
+	lists:sublist(MixedEntriesList, ?num_entries).
+
 start(Name, Entries, Updates, Server) ->
 	spawn(fun() -> open(Name, Entries, Updates, Server, 0, 0) end).
 open(Name, Entries, Updates, Server, Total, Ok) ->
@@ -15,12 +26,12 @@ open(Name, Entries, Updates, Server, Total, Ok) ->
 		{transaction, Validator, Store} ->
 			Handler = handler:start(self(), Validator, Store),
 			do_transactions(Name, Entries, Updates, Server, Handler,
-							Total, Ok, Updates)
+							Total, Ok, Updates, generateSubset(Entries))
 end.
 % Commit transaction
-do_transactions(Name, Entries, Updates, Server, Handler, Total, Ok, 0) ->
+do_transactions(Name, Entries, Updates, Server, Handler, Total, Ok, 0, _) ->
 	%io:format("~w: Commit: TOTAL ~w, OK ~w~n", [Name, Total, Ok]),
-	%timer:sleep(Name*10),
+	%timer:sleep(100),
 	Ref = make_ref(),
 	Handler ! {commit, Ref},
 Result = receiveCommitValue(Ref),
@@ -30,15 +41,29 @@ Result = receiveCommitValue(Ref),
 		true ->
 			open(Name, Entries, Updates, Server, Total+1, Ok)
 end;
+
 % Reads and Writes
-do_transactions(Name, Entries, Updates, Server, Handler, Total, Ok, N) ->
+do_transactions(Name, Entries, Updates, Server, Handler, Total, Ok, N, EntriesSubset) ->
 	%io:format("~w: R/W: TOTAL ~w, OK ~w, N ~w~n", [Name, Total, Ok, N]),
 	Ref = make_ref(),
-	Num = random:uniform(Entries),
-	Handler ! {read, Ref, Num},
-	Value = receiveValue(Ref),
-	Handler ! {write, Num, Value+1},
-	do_transactions(Name, Entries, Updates, Server, Handler, Total, Ok, N-1).
+	%Num = random:uniform(Entries),
+	NumPos = random:uniform(?num_entries),
+	Num = lists:nth(NumPos, EntriesSubset),
+	case random:uniform(?rp) of
+		?rp ->
+			Handler ! {read, Ref, Num},
+			Value = receiveValue(Ref);
+		_ ->
+			Value = random:uniform(1000)
+	end,
+	case random:uniform(?wp) of
+		?wp ->
+			Handler ! {write, Num, Value+1};
+		_ ->
+			ok
+	end,
+	do_transactions(Name, Entries, Updates, Server, Handler, Total, Ok, N-1, EntriesSubset).
+
 receiveCommitValue(Ref) ->
 	receive
 		{Ref,Value} -> Value
