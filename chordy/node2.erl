@@ -94,6 +94,7 @@ node(MyKey, Predecessor, Successor, Store) ->
 		{lookup, Key, Qref, Client} ->
 			lookup(Key, Qref, Client, MyKey, Predecessor, Successor, Store),
 			node(MyKey, Predecessor, Successor, Store);
+		% receive datastore handover from a node
 		{handover, Elements} ->
 			Merged = storage:merge(Store, Elements),
 			node(MyKey, Predecessor, Successor, Merged)
