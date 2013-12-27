@@ -19,9 +19,10 @@ start(MyKey, PeerPid) ->
 init(MyKey, PeerPid) ->
 	% start with no predecessor defined
 	Predecessor = nil,
+	% start with no next node defined
+	Next = nil,
 	% connect to a peer in a DHT
 	{ok, Successor} = connect(MyKey, PeerPid),
-	Next = pleasefixmethisisterribleohmyohmyohmyohmywhatamigoingtodopleasefixmeasfastaspossible,
 	% schedule periodic stabilization
 	schedule_stabilize(),
 	% create an empty datastore
