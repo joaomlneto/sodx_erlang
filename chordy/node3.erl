@@ -25,10 +25,11 @@ init(MyKey, PeerPid) ->
 	{ok, Successor} = connect(MyKey, PeerPid),
 	% schedule periodic stabilization
 	schedule_stabilize(),
-	% create an empty datastore
+	% create an empty datastore for ourselves and one for replication
 	Store = storage:create(),
+	Replica = storage:create(),
 	% enter main loop
-	node(MyKey, Predecessor, Successor, Next, Store).
+	node(MyKey, Predecessor, Successor, Next, Store, Replica).
 
 % Connect to a node in a DHT...
 % Except you don't!
@@ -55,59 +56,65 @@ connect(_, PeerPid) ->
 
 
 % the node main loop - waiting for messages and stuff...
-node(MyKey, Predecessor, Successor, Next, Store) ->
+node(MyKey, Predecessor, Successor, Next, Store, Replica) ->
 	receive
 		% a peer node wants to know our key
 		{key, Qref, PeerPid} ->
 			PeerPid ! {Qref, MyKey},
-			node(MyKey, Predecessor, Successor, Next, Store);
+			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% a new node informs us of its existence
 		{notify, New} ->
 			{Pred, Keep} = notify(New, MyKey, Predecessor, Store),
-			node(MyKey, Pred, Successor, Next, Keep);
+			node(MyKey, Pred, Successor, Next, Keep, Replica);
 		% a potential predecessor needs to know our predecessor
 		{request, Peer} ->
 			request(Peer, Predecessor, Successor),
-			node(MyKey, Predecessor, Successor, Next, Store);
+			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% our successor informs us about his current predecessor and successor
 		{status, Pred, Nx} ->
 			{Succ, Nxt} = stabilize(Pred, Nx, MyKey, Successor),
-			node(MyKey, Predecessor, Succ, Nxt, Store);
+			node(MyKey, Predecessor, Succ, Nxt, Store, Replica);
 		% stabilize ourselves periodically
 		stabilize ->
 			stabilize(Successor),
-			node(MyKey, Predecessor, Successor, Next, Store);
+			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% received a probe from a client - make it go around!
 		probe ->
 			create_probe(MyKey, Successor, Store, Next),
-			node(MyKey, Predecessor, Successor, Next, Store);
+			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% received the probe i sent back - it went around!
 		{probe, MyKey, Nodes, T} ->
 			remove_probe(MyKey, Nodes, T),
-			node(MyKey, Predecessor, Successor, Next, Store);
+			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% receive a probe originating from someone else
 		{probe, RefKey, Nodes, T} ->
 			forward_probe(MyKey, RefKey, [{MyKey, Store, Next}|Nodes], T, Successor),
-			node(MyKey, Predecessor, Successor, Next, Store);
+			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% receive request to add a (key,value) to the datastore
 		{add, Key, Value, Qref, Client} ->
 			Added = add(Key, Value, Qref, Client, MyKey, Predecessor, Successor, Store),
-			node(MyKey, Predecessor, Successor, Next, Added);
+			node(MyKey, Predecessor, Successor, Next, Added, Replica);
 		% lookup a value by key in the datastore
 		{lookup, Key, Qref, Client} ->
 			lookup(Key, Qref, Client, MyKey, Predecessor, Successor, Store),
-			node(MyKey, Predecessor, Successor, Next, Store);
+			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% receive part of someone's datastore to add to our own
 		{handover, Elements} ->
 			Merged = storage:merge(Store, Elements),
-			node(MyKey, Predecessor, Successor, Next, Merged);
+			{_, _, Spid} = Successor,
+			Spid ! {pushreplica, Merged}, % we could only send the new elements
+			node(MyKey, Predecessor, Successor, Next, Merged, Replica);
+		% receive entry request to replicate
+		{replicate, Key, Value} ->
+			NewReplica = storage:add(Key, Value, Replica),
+			node(MyKey, Predecessor, Successor, Next, Store, NewReplica);
 		% message to stop a node
 		stop ->
 			bye;
 		% failure detector detects succ/pred is down
 		{'DOWN', Ref, process, _, _} ->
 			{Pred, Succ, Nxt} = down(Ref, Predecessor, Successor, Next),
-			node(MyKey, Pred, Succ, Nxt, Store)
+			node(MyKey, Pred, Succ, Nxt, Store, Replica)
 	end.
 
 % stabilize
@@ -257,6 +264,7 @@ add(Key, Value, Qref, Client, MyKey, {Pkey, _}, {_, Spid}, Store) ->
 		true ->
 			% update our own datastore
 			Added = storage:add(Key, Value, Store),
+			Spid ! {replicate, Key, Value},
 			Client ! {Qref, ok},
 			Added;
 		% it is not on our datastore domain
