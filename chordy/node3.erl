@@ -105,8 +105,8 @@ node(MyKey, Predecessor, Successor, Next, Store) ->
 
 % stabilize
 % Our successor informs us about his current predecessor
-% Pred: our successor's current predecessor
-% Nx: our successor's current successor
+% Pred: our successor's current predecessor (RECEIVED REMOTELY)
+% Nx: our successor's current successor (RECEIVED REMOTELY)
 % MyKey: our key
 % Successor: our successor's PID
 % Returns: the pair {Successor, Next}
@@ -121,14 +121,14 @@ stabilize(Pred, Nx, MyKey, Successor) ->
 			{Successor, Nx};
 		% our successor's predecessor is us... stable situation!
 		% Next node is our successor's successor (Nx)
-		{MyKey, _, _} ->
+		{MyKey, _} ->
 			{Successor, Nx};
 		% our successor's predecessor is himself! only one node in the DHT
 		% we should notify it about our existence
 		% Next node is ourselves (now there are two nodes in the DHT)
-		{Skey, _, _} ->
+		{Skey, _} ->
 			Spid ! {notify, {MyKey, self()}},
-			{Successor, {MyKey, nil, self()}};
+			{Successor, Nx};
 		% our successor's predecessor is someone else
 		% we must check who is wrong - us or him
 		{Xkey, Xpid} ->
