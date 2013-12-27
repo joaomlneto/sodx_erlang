@@ -64,7 +64,7 @@ node(MyKey, Predecessor, Successor, Next, Store, Replica) ->
 			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% a new node informs us of its existence
 		{notify, New} ->
-			{Pred, Keep} = notify(New, MyKey, Predecessor, Store),
+			{Pred, Keep} = notify(New, MyKey, Predecessor, Successor, Store),
 			node(MyKey, Pred, Successor, Next, Keep, Replica);
 		% a potential predecessor needs to know our predecessor
 		{request, Peer} ->
@@ -80,7 +80,7 @@ node(MyKey, Predecessor, Successor, Next, Store, Replica) ->
 			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% received a probe from a client - make it go around!
 		probe ->
-			create_probe(MyKey, Successor, Store, Next),
+			create_probe(MyKey, Successor, Store, Replica, Next),
 			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% received the probe i sent back - it went around!
 		{probe, MyKey, Nodes, T} ->
@@ -88,7 +88,7 @@ node(MyKey, Predecessor, Successor, Next, Store, Replica) ->
 			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% receive a probe originating from someone else
 		{probe, RefKey, Nodes, T} ->
-			forward_probe(MyKey, RefKey, [{MyKey, Store, Next}|Nodes], T, Successor),
+			forward_probe(MyKey, RefKey, [{MyKey, Store, Replica, Next}|Nodes], T, Successor, Store, Replica),
 			node(MyKey, Predecessor, Successor, Next, Store, Replica);
 		% receive request to add a (key,value) to the datastore
 		{add, Key, Value, Qref, Client} ->
@@ -199,7 +199,7 @@ stabilize({_, _, Spid}) ->
 % We have to do some investigation, though...
 % Returns: {key, pid} of our predecessor and the part of datastore to keep
 %          format: {{PredecessorKey, PredecessorPid}, Datastore}
-notify({Nkey, Npid}, MyKey, Predecessor, Store) ->
+notify({Nkey, Npid}, MyKey, Predecessor, Successor, Store) ->
 	case Predecessor of
 		% we dont have a predecessor, we'll have to believe him
 		nil ->
@@ -214,10 +214,13 @@ notify({Nkey, Npid}, MyKey, Predecessor, Store) ->
 			case key:between(Nkey, Pkey, MyKey) of
 				% the new guy is closer than our predecessor - accept him
 				% dont forget to start monitoring him and stop monitoring the old one
+				% we also inform our successor of our new store
 				true ->
 					Keep = handover(Store, MyKey, Nkey, Npid),
 					demonit(Pref),
 					Nref = monit(Npid),
+					{_, _, Spid} = Successor,
+					Spid ! {pushreplica, Keep},
 					{{Nkey, Nref, Npid}, Keep};
 				% the new guy is not our predecessor - ignore him
 				false ->
@@ -239,9 +242,10 @@ handover(Store, MyKey, Nkey, Npid) ->
 % create_probe
 % we received a request for probing a DHT from a client
 % create a probe and make it go around the DHT - send to successor
-create_probe(MyKey, {Skey, _, Spid}, Store, Next) ->
-	Spid ! {probe, MyKey, [{MyKey, Store, Next}], erlang:now()},
-	io:format("[~w] Create probe ~w! Passing to ~w~n", [MyKey, MyKey, Skey]).
+create_probe(MyKey, {Skey, _, Spid}, Store, Replica, Next) ->
+	Spid ! {probe, MyKey, [{MyKey, Store, Replica, Next}], erlang:now()},
+	io:format("[~w] Have a replica ~w Create probe ~w! Passing to ~w~n", [MyKey, Replica, MyKey, Skey]).
+	%io:format("~n[~w] Create probe ~w! Passing to ~w~n", [MyKey, MyKey, Skey]).
 
 % remove_probe
 % the probe we created went around! remove it from the DHT
@@ -252,16 +256,17 @@ remove_probe(MyKey, Nodes, T) ->
 % forward_probe
 % forward a probe originated in some other node along the DHT
 % Note: we have already been added to the Nodes list in the main loop (node/3)
-forward_probe(MyKey, RefKey, Nodes, T, {Skey, _, Spid}) ->
+forward_probe(MyKey, RefKey, Nodes, T, {Skey, _, Spid}, _, Replica) ->
 	Spid ! {probe, RefKey, Nodes, T},
-	io:format("[~w] Forward probe ~w to ~w!~n", [MyKey, RefKey, Skey]).
+	io:format("[~w] Have a replica ~w Forward probe ~w to ~w!~n", [MyKey, Replica, RefKey, Skey]).
+	%io:format("~n[~w] Forward probe ~w to ~w!~nDatastore: ~w~nReplica: ~w~n", [MyKey, RefKey, Skey, Store, Replica]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Datastore-related functionality %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % add
 % add a (key, value) to the DHT datastore
-add(Key, Value, Qref, Client, MyKey, {Pkey, _}, {_, Spid}, Store) ->
+add(Key, Value, Qref, Client, MyKey, {Pkey, _, _}, {_, _, Spid}, Store) ->
 	case key:between(Key, Pkey, MyKey) of
 		% it is on our datastore domain
 		true ->
@@ -279,7 +284,7 @@ add(Key, Value, Qref, Client, MyKey, {Pkey, _}, {_, Spid}, Store) ->
 
 % lookup
 % lookup a value by key in the DHT datastore
-lookup(Key, Qref, Client, MyKey, {Pkey, _}, {_, Spid}, Store) ->
+lookup(Key, Qref, Client, MyKey, {Pkey, _, _}, {_, _, Spid}, Store) ->
 	case key:between(Key, Pkey, MyKey) of
 		% it is on our datastore domain
 		true ->
