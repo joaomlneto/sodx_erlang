@@ -156,13 +156,13 @@ end.
 % A potential predecessor needs to know our successor
 % Peer: the PID of the peer requesting the information
 % Predecessor: our current predecessor
-request(Peer, Predecessor, {Skey, Spid}) ->
+request(Peer, Predecessor, {Skey, _, Spid}) ->
 	case Predecessor of
 		% we dont have one :( help us!
 		nil ->
 			Peer ! {status, nil, {Skey, Spid}};
 		% just send it to them
-		{Pkey, Ppid} ->
+		{Pkey, _, Ppid} ->
 			Peer ! {status, {Pkey, Ppid}, {Skey, Spid}}
 end.
 
@@ -173,7 +173,7 @@ schedule_stabilize() ->
 
 % stabilize
 % Stabilization
-stabilize({_, Spid}) ->
+stabilize({_, _, Spid}) ->
 	% send request message to successor
 	Spid ! {request, self()}.
 
@@ -183,19 +183,17 @@ stabilize({_, Spid}) ->
 % Returns: {key, pid} of our predecessor and the part of datastore to keep
 %          format: {{PredecessorKey, PredecessorPid}, Datastore}
 notify({Nkey, Npid}, MyKey, Predecessor, Store) ->
-	{_, Pref, _} = Predecessor,
 	case Predecessor of
 		% we dont have a predecessor, we'll have to believe him
 		nil ->
 			% send him his share of the data and let him
 			% become our new predecessor
-			% dont forget to start monitoring him and stop monitoring the old one
+			% dont forget to start monitoring him
 			Keep = handover(Store, MyKey, Nkey, Npid),
-			demonit(Pref),
 			Nref = monit(Npid),
 			{{Nkey, Nref, Npid}, Keep};
 		% we have a predecessor, lets check both keys
-		{Pkey, _} ->
+		{Pkey, Pref, _} ->
 			case key:between(Nkey, Pkey, MyKey) of
 				% the new guy is closer than our predecessor - accept him
 				% dont forget to start monitoring him and stop monitoring the old one
@@ -224,7 +222,7 @@ handover(Store, MyKey, Nkey, Npid) ->
 % create_probe
 % we received a request for probing a DHT from a client
 % create a probe and make it go around the DHT - send to successor
-create_probe(MyKey, {Skey, Spid}, Store, Next) ->
+create_probe(MyKey, {Skey, _, Spid}, Store, Next) ->
 	Spid ! {probe, MyKey, [{MyKey, Store, Next}], erlang:now()},
 	io:format("[~w] Create probe ~w! Passing to ~w~n", [MyKey, MyKey, Skey]).
 
@@ -237,7 +235,7 @@ remove_probe(MyKey, Nodes, T) ->
 % forward_probe
 % forward a probe originated in some other node along the DHT
 % Note: we have already been added to the Nodes list in the main loop (node/3)
-forward_probe(MyKey, RefKey, Nodes, T, {Skey, Spid}) ->
+forward_probe(MyKey, RefKey, Nodes, T, {Skey, _, Spid}) ->
 	Spid ! {probe, RefKey, Nodes, T},
 	io:format("[~w] Forward probe ~w to ~w!~n", [MyKey, RefKey, Skey]).
 
