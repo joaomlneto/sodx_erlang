@@ -35,7 +35,7 @@ init(MyKey, PeerPid) ->
 % Just start a DHT with ourselves - forever alone
 connect(MyKey, nil) ->
 	% We are the first ones! We are our own successor
-	{ok, {MyKey, self()}};
+	{ok, {MyKey, nil, self()}};
 
 % Connect to a node in a DHT
 % This time for real!
@@ -46,7 +46,8 @@ connect(_, PeerPid) ->
 	receive
 		% the Peer replies with the key!
 		{Qref, Skey} ->
-			{ok, {Skey, PeerPid}}
+			Sref = monit(PeerPid),
+			{ok, {Skey, Sref, PeerPid}}
 		% something went wrong and we got no response
 		after ?Timeout ->
 			io:format("Timeout: no response from ~w~n", [PeerPid])
@@ -110,7 +111,7 @@ node(MyKey, Predecessor, Successor, Next, Store) ->
 % Successor: our successor's PID
 % Returns: the pair {Successor, Next}
 stabilize(Pred, Nx, MyKey, Successor) ->
-	{Skey, Spid} = Successor,
+	{Skey, Sref, Spid} = Successor,
 	case Pred of
 		% our successor has no predecessor
 		% we should notify it about our existence
@@ -120,24 +121,27 @@ stabilize(Pred, Nx, MyKey, Successor) ->
 			{Successor, Nx};
 		% our successor's predecessor is us... stable situation!
 		% Next node is our successor's successor (Nx)
-		{MyKey, _} ->
+		{MyKey, _, _} ->
 			{Successor, Nx};
 		% our successor's predecessor is himself! only one node in the DHT
 		% we should notify it about our existence
 		% Next node is ourselves (now there are two nodes in the DHT)
-		{Skey, _} ->
+		{Skey, _, _} ->
 			Spid ! {notify, {MyKey, self()}},
-			{Successor, {MyKey, self()}};
+			{Successor, {MyKey, nil, self()}};
 		% our successor's predecessor is someone else
 		% we must check who is wrong - us or him
 		{Xkey, Xpid} ->
 			case key:between(Xkey, MyKey, Skey) of
-				% the new guy is between us and our successor
+				% the new guy (X) is between us and our successor
 				% we are wrong - fix ourselves!
 				% Next node is our old successor for the time being
 				% Schedule a stabilize, because there can be more nodes in between
+				% stop monitoring the old successor and start monitoring X
 				true ->
 					self() ! stabilize,
+					demonit(Sref),
+					Xref = monit(Xpid),
 					{{Xkey, Xpid}, Successor};
 				% our successor is wrong! - notify him we exist
 				% we should be his predecessor!
@@ -179,20 +183,27 @@ stabilize({_, Spid}) ->
 % Returns: {key, pid} of our predecessor and the part of datastore to keep
 %          format: {{PredecessorKey, PredecessorPid}, Datastore}
 notify({Nkey, Npid}, MyKey, Predecessor, Store) ->
+	{_, Pref, _} = Predecessor,
 	case Predecessor of
 		% we dont have a predecessor, we'll have to believe him
 		nil ->
 			% send him his share of the data and let him
 			% become our new predecessor
+			% dont forget to start monitoring him and stop monitoring the old one
 			Keep = handover(Store, MyKey, Nkey, Npid),
-			{{Nkey, Npid}, Keep};
+			demonit(Pref),
+			Nref = monit(Npid),
+			{{Nkey, Nref, Npid}, Keep};
 		% we have a predecessor, lets check both keys
 		{Pkey, _} ->
 			case key:between(Nkey, Pkey, MyKey) of
 				% the new guy is closer than our predecessor - accept him
+				% dont forget to start monitoring him and stop monitoring the old one
 				true ->
 					Keep = handover(Store, MyKey, Nkey, Npid),
-					{{Nkey, Npid}, Keep};
+					demonit(Pref),
+					Nref = monit(Npid),
+					{{Nkey, Nref, Npid}, Keep};
 				% the new guy is not our predecessor - ignore him
 				false ->
 					{Predecessor, Store}
@@ -265,3 +276,18 @@ lookup(Key, Qref, Client, MyKey, {Pkey, _}, {_, Spid}, Store) ->
 			Spid ! {lookup, Key, Qref, Client}
 	end.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Failure detection functionality %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% monit
+% start monitoring a process
+% Return: a monitoring reference
+monit(Pid) ->
+	erlang:monitor(process, Pid).
+
+% demonit
+% stop monitoring a process via monitor reference
+demonit(nil) ->
+	ok;
+demonit(MonitorRef) ->
+	erlang:demonitor(MonitorRef, [flush]).
