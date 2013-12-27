@@ -108,13 +108,16 @@ node(MyKey, Predecessor, Successor, Next, Store, Replica) ->
 		{replicate, Key, Value} ->
 			NewReplica = storage:add(Key, Value, Replica),
 			node(MyKey, Predecessor, Successor, Next, Store, NewReplica);
+		% receive request to replace replica datastore
+		{pushreplica, NewReplica} ->
+			node(MyKey, Predecessor, Successor, Next, Store, NewReplica);
 		% message to stop a node
 		stop ->
 			bye;
 		% failure detector detects succ/pred is down
 		{'DOWN', Ref, process, _, _} ->
-			{Pred, Succ, Nxt} = down(Ref, Predecessor, Successor, Next),
-			node(MyKey, Pred, Succ, Nxt, Store, Replica)
+			{Pred, Succ, Nxt, NewStore, NewReplica} = down(Ref, Predecessor, Successor, Next, Store, Replica),
+			node(MyKey, Pred, Succ, Nxt, NewStore, NewReplica)
 	end.
 
 % stabilize
@@ -307,9 +310,15 @@ demonit(MonitorRef) ->
 
 % down
 % detect a node as down
-down(Ref, {_, Ref, _}, Successor, Next) ->
-	{nil, Successor, Next};
-down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}) ->
+down(Ref, {_, Ref, _}, Successor, Next, Store, Replica) ->
+	% predecessor is down!
+	NewStore = storage:merge(Store, Replica),
+	NewReplica = storage:create(),
+	{_, _, Spid} = Successor,
+	Spid ! {pushreplica, NewStore},
+	{nil, Successor, Next, NewStore, NewReplica};
+down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}, Store, Replica) ->
+	% successor is down!
 	self() ! stabilize,
 	Nref = monit(Npid),
-	{Predecessor, {Nkey, Nref, Npid}, nil}.
+	{Predecessor, {Nkey, Nref, Npid}, nil, Store, Replica}.
