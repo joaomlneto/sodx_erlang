@@ -142,7 +142,7 @@ stabilize(Pred, Nx, MyKey, Successor) ->
 					self() ! stabilize,
 					demonit(Sref),
 					Xref = monit(Xpid),
-					{{Xkey, Xpid}, Successor};
+					{{Xkey, Xref, Xpid}, Successor};
 				% our successor is wrong! - notify him we exist
 				% we should be his predecessor!
 				% Next node is our successor's successor (Nx), or at least we assume for now
