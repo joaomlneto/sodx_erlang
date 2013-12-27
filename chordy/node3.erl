@@ -100,7 +100,14 @@ node(MyKey, Predecessor, Successor, Next, Store) ->
 		% receive part of someone's datastore to add to our own
 		{handover, Elements} ->
 			Merged = storage:merge(Store, Elements),
-			node(MyKey, Predecessor, Successor, Next, Merged)
+			node(MyKey, Predecessor, Successor, Next, Merged);
+		% message to stop a node
+		stop ->
+			bye;
+		% failure detector detects succ/pred is down
+		{'DOWN', Ref, process, _, _} ->
+			{Pred, Succ, Nxt} = down(Ref, Predecessor, Successor, Next),
+			node(MyKey, Pred, Succ, Nxt, Store)
 	end.
 
 % stabilize
@@ -289,3 +296,12 @@ demonit(nil) ->
 	ok;
 demonit(MonitorRef) ->
 	erlang:demonitor(MonitorRef, [flush]).
+
+% down
+% detect a node as down
+down(Ref, {_, Ref, _}, Successor, Next) ->
+	{nil, Successor, Next};
+down(Ref, Predecessor, {_, Ref, _}, {Nkey, Npid}) ->
+	self() ! stabilize,
+	Nref = monit(Npid),
+	{Predecessor, {Nkey, Nref, Npid}, nil}.
