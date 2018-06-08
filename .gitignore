@@ -1,2 +1,3 @@
 # Dont include compiled erlang files
 *.beam
+.DS_Store
